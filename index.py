@@ -8,7 +8,7 @@ from telegram.ext import CommandHandler, MessageHandler, Filters, CallbackQueryH
 from scraper import search_movies, get_movie
 
 TOKEN = "8640151446:AAHV_9j62tKvI2qtPwp05qTYeagjq0gXErk" # Insert Bot Token
-URL = "" # Host on "https://vercel.com/" & Insert project URL like: "https://project-name.vercel.app"
+URL = "https://ceestreambot.vercel.app" # Host on "https://vercel.com/" & Insert project URL like: "https://project-name.vercel.app"
 bot = Bot(TOKEN)
 
 def welcome(update, context) -> None:
