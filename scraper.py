@@ -9,9 +9,9 @@ HEADERS = {
 }
 
 API_KEY = "d154a6bffe6626a2744dfeb9f24f3f2338dfdbfe"
-# Guaranteed fallback image if the movie page has no thumbnail
 FALLBACK_IMG = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=60"
 
+DOMAINS = ["awafim.org", "thenkiri.com", "mobiletvshows.site"]
 url_list = {}
 
 
@@ -28,56 +28,50 @@ def shorten_url(original_url: str) -> str:
     return original_url
 
 
-def resolve_direct_download_link(raw_url: str) -> str:
-    """Double-scraper resolver: decodes intermediate file host pages into direct video stream URLs."""
+def resolve_universal_download_link(raw_url: str) -> str:
+    """Universal resolver: handles file hosts (Downloadwella, Sabishares, Wideshares), videodownloader.site, and direct streams."""
     try:
-        if "downloadwella.com" in raw_url:
+        # 1. Handle Downloadwella / Xfileshare / Sabishares architecture natively
+        if "downloadwella.com" in raw_url or "wideshares.org" in raw_url:
             page_res = requests.get(raw_url, headers=HEADERS, timeout=6)
-            if page_res.status_code != 200:
-                return raw_url
-            
-            soup = BeautifulSoup(page_res.text, "html.parser")
-            form = soup.find("form", {"name": "F1"})
-            
-            file_id = ""
-            rand_val = ""
-            if form:
-                id_input = form.find("input", {"name": "id"})
-                rand_input = form.find("input", {"name": "rand"})
-                if id_input:
-                    file_id = id_input.get("value", "")
-                if rand_input:
-                    rand_val = rand_input.get("value", "")
-
-            if not file_id:
-                parts = raw_url.split("/")
-                if len(parts) > 3:
-                    file_id = parts[3]
-
-            post_data = {
-                "op": "download2",
-                "id": file_id,
-                "rand": rand_val,
-                "referer": raw_url,
-                "method_free": "Free Download"
-            }
-
-            post_res = requests.post(raw_url, data=post_data, headers={
-                **HEADERS,
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": raw_url
-            }, timeout=8)
-
-            if post_res.status_code == 200:
-                post_soup = BeautifulSoup(post_res.text, "html.parser")
-                direct_a = post_soup.select_one('a[href*=".mkv"], a[href*=".mp4"]')
-                if direct_a and direct_a.get("href"):
-                    return direct_a.get("href")
+            if page_res.status_code == 200:
+                soup = BeautifulSoup(page_res.text, "html.parser")
+                form = soup.find("form", {"name": "F1"}) or soup.find("form")
                 
-                # Fallback regex for direct video link
-                match = re.search(r'href=["\'](https://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', post_res.text, re.IGNORECASE)
-                if match:
-                    return match.group(1)
+                file_id = ""
+                rand_val = ""
+                if form:
+                    id_input = form.find("input", {"name": "id"})
+                    rand_input = form.find("input", {"name": "rand"})
+                    if id_input: file_id = id_input.get("value", "")
+                    if rand_input: rand_val = rand_input.get("value", "")
+
+                if not file_id:
+                    parts = raw_url.split("/")
+                    if len(parts) > 3: file_id = parts[3]
+
+                post_data = {
+                    "op": "download2",
+                    "id": file_id,
+                    "rand": rand_val,
+                    "referer": raw_url,
+                    "method_free": "Free Download"
+                }
+
+                post_res = requests.post(raw_url, data=post_data, headers={
+                    **HEADERS,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Referer": raw_url
+                }, timeout=8)
+
+                if post_res.status_code == 200:
+                    post_soup = BeautifulSoup(post_res.text, "html.parser")
+                    direct_a = post_soup.select_one('a[href*=".mkv"], a[href*=".mp4"]')
+                    if direct_a and direct_a.get("href"):
+                        return direct_a.get("href")
+                    match = re.search(r'href=["\'](https://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', post_res.text, re.IGNORECASE)
+                    if match:
+                        return match.group(1)
 
         elif "sabishares.com" in raw_url:
             clean_url = raw_url.split("?preview")[0]
@@ -87,15 +81,34 @@ def resolve_direct_download_link(raw_url: str) -> str:
                 return loc
             return clean_url
 
-        elif "wideshares.org" in raw_url:
-            page_res = requests.get(raw_url, headers=HEADERS, timeout=6)
-            if page_res.status_code == 200:
-                match = re.search(r'https://wideshares\.org/force_download\.php\?[^\s"\'\<\>]+', page_res.text)
-                if match:
-                    return match.group(0)
+        # 2. Integrate videodownloader.site API/extraction
+        try:
+            vd_endpoint = f"https://videodownloader.site/api/extract?url={requests.utils.quote(raw_url)}"
+            vd_res = requests.get(vd_endpoint, headers=HEADERS, timeout=4)
+            if vd_res.status_code == 200:
+                vd_data = vd_res.json()
+                if vd_data.get("success") and vd_data.get("download_url"):
+                    return vd_data["download_url"]
+        except Exception:
+            pass
+
+        # 3. Generic HTML5 Fallback
+        page_res = requests.get(raw_url, headers=HEADERS, timeout=6)
+        if page_res.status_code == 200:
+            soup = BeautifulSoup(page_res.text, "html.parser")
+            video_tag = soup.find("video")
+            if video_tag and video_tag.get("src"):
+                return video_tag.get("src")
+            source_tag = soup.find("source")
+            if source_tag and source_tag.get("src"):
+                return source_tag.get("src")
+            
+            match = re.search(r'https?://[^\s"\'<>]+?\.(?:mkv|mp4|avi|mov|webm)', page_res.text, re.IGNORECASE)
+            if match:
+                return match.group(0)
 
     except Exception as e:
-        print(f"[Double Scraper Error]: {e}")
+        print(f"[Universal Resolver Error]: {e}")
 
     return raw_url
 
@@ -104,47 +117,49 @@ def search_movies(query: str):
     global url_list
     movies_list = []
     
-    target_url = f"https://videodownloader.site/?s={query.replace(' ', '+')}"
-
-    try:
-        response = requests.get(target_url, headers=HEADERS, timeout=8, allow_redirects=True)
-        if response.status_code != 200:
-            return []
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        cards = soup.find_all("a", class_="ml-mask jt")
-        if not cards:
-            cards = soup.select("article a, .thumb a, .entry-title a, .post-title a")
-
-        for idx, item in enumerate(cards):
-            href = item.get("href")
-            if not href or href.startswith("#"):
+    for domain in DOMAINS:
+        target_url = f"https://{domain}/?s={query.replace(' ', '+')}"
+        try:
+            response = requests.get(target_url, headers=HEADERS, timeout=6, allow_redirects=True)
+            if response.status_code != 200:
                 continue
 
-            info_span = item.find("span", class_="mli-info")
-            title = info_span.get_text(strip=True) if info_span else item.get_text(strip=True) or item.get("title", "")
+            soup = BeautifulSoup(response.text, "html.parser")
+            cards = soup.find_all("a", class_="ml-mask jt")
+            if not cards:
+                cards = soup.select("article a, .thumb a, .entry-title a, .post-title a")
 
-            if not title:
-                continue
+            for idx, item in enumerate(cards):
+                href = item.get("href")
+                if not href or href.startswith("#"):
+                    continue
 
-            link_id = f"link{idx}"
-            url_list[link_id] = href
+                info_span = item.find("span", class_="mli-info")
+                title = info_span.get_text(strip=True) if info_span else item.get_text(strip=True) or item.get("title", "")
 
-            movies_list.append({
-                "id": link_id,
-                "title": title,
-                "url": href
-            })
+                if not title:
+                    continue
 
-            if len(movies_list) >= 8:
-                break
+                link_id = f"{domain}_link{idx}"
+                url_list[link_id] = href
 
-        return movies_list
+                movies_list.append({
+                    "id": link_id,
+                    "title": title,
+                    "url": href
+                })
 
-    except Exception as e:
-        print(f"[Search Exception]: {e}")
-        return []
+                if len(movies_list) >= 8:
+                    break
+
+            if movies_list:
+                break # Stop trying other domains if results found
+
+        except Exception as e:
+            print(f"[Search Exception on {domain}]: {e}")
+            continue
+
+    return movies_list
 
 
 def get_movie(query: str):
@@ -172,7 +187,7 @@ def get_movie(query: str):
         elif soup.find("h1"):
             movie_details["title"] = soup.find("h1").get_text(strip=True)
 
-        # 2. Extract Image safely (checks meta, post thumbnails, and inline images)
+        # 2. Extract Image safely
         img_url = None
         og_img = soup.find("meta", property="og:image")
         if og_img and og_img.get("content"):
@@ -191,7 +206,7 @@ def get_movie(query: str):
         if img_url and img_url.startswith("http"):
             movie_details["img"] = img_url
 
-        # 3. Extract Links & Resolve via Double Scraper
+        # 3. Extract Links and resolve universally
         links = soup.find_all("a", attrs={"rel": "noopener", "data-wpel-link": "internal"})
         if not links:
             links = [a for a in soup.find_all("a", href=True) if "download" in a.get("href", "").lower()]
@@ -201,12 +216,10 @@ def get_movie(query: str):
             btn_text = a_tag.get_text(strip=True) or "Download Link"
             raw_href = a_tag.get("href")
             if raw_href and raw_href.startswith("http"):
-                # Pass through the double scraper to get the direct video file link
-                direct_url = resolve_direct_download_link(raw_href)
+                direct_url = resolve_universal_download_link(raw_href)
                 shortened = shorten_url(direct_url)
                 final_links[btn_text] = shortened
 
-        # Fallback if no internal download links were found
         if not final_links:
             final_links["View on Website"] = shorten_url(page_url)
 
