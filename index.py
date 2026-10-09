@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 from scraper import search_movies, get_movie
 
-TOKEN = "8640151446:AAHV_9j62tKvI2qtPwp05qTEyagjq0gXErk"
+TOKEN = "8640151446:AAHV_9j62tKvI2qtPwp05qTYeagjq0gXErk"
 URL = "https://ceestreambot.vercel.app"
 
 app = Flask(__name__)
