@@ -104,7 +104,7 @@ def search_movies(query: str):
     global url_list
     movies_list = []
     
-    target_url = f"https://awafim.org/?s={query.replace(' ', '+')}"
+    target_url = f"https://videodownloader.site/?s={query.replace(' ', '+')}"
 
     try:
         response = requests.get(target_url, headers=HEADERS, timeout=8, allow_redirects=True)
