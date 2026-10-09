@@ -1,8 +1,6 @@
 import os
 import asyncio
-from io import BytesIO
 from flask import Flask, request
-import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -20,53 +18,88 @@ app = Flask(__name__)
 
 
 async def welcome(update: Update, context) -> None:
-    await update.message.reply_text(
-        "Hello Dear, Welcome to CeeStream Bot.\n"
-        "🔥 Download Your Favourite Movies, Webseries & TV-Shows For 🎁 Free And 🥳 Enjoy it.\n"
-        "👇 Enter Keyword Below 👇"
-    )
+    if update.message:
+        await update.message.reply_text(
+            "Hello Dear, Welcome to CeeStream Bot.\n"
+            "🔥 Download Your Favourite Movies, Webseries & TV-Shows For 🎁 Free And 🥳 Enjoy it.\n"
+            "👇 Enter Keyword Below 👇"
+        )
 
 
 async def find_movie(update: Update, context) -> None:
-    search_results = await update.message.reply_text("Processing...")
-    query = update.message.text
-    movies_list = search_movies(query)
+    if not update.message or not update.message.text:
+        return
 
-    if movies_list:
-        keyboards = [
-            [InlineKeyboardButton(movie["title"], callback_data=movie["id"])]
-            for movie in movies_list
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboards)
-        await search_results.edit_text("Results", reply_markup=reply_markup)
-    else:
-        await search_results.edit_text(
-            "Sorry 🙏, No result found!\nPlease retry Or contact admin."
-        )
+    query = update.message.text
+    search_results = await update.message.reply_text("🔍 Searching, please wait...")
+    
+    try:
+        movies_list = search_movies(query)
+
+        if movies_list:
+            keyboards = [
+                # Trim title to 50 chars so inline button fits Telegram UI comfortably
+                [InlineKeyboardButton(movie["title"][:50], callback_data=movie["id"])]
+                for movie in movies_list
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboards)
+            await search_results.edit_text(f"🎬 Results for '{query}':", reply_markup=reply_markup)
+        else:
+            await search_results.edit_text(
+                "Sorry 🙏, No result found!\nPlease check the spelling or try another title."
+            )
+    except Exception as e:
+        print(f"[find_movie error]: {e}")
+        await search_results.edit_text("⚠️ An error occurred while searching. Please try again.")
 
 
 async def movie_result(update: Update, context) -> None:
     query = update.callback_query
-    await query.answer()
+    if not query:
+        return
+
+    # Acknowledge the button press so the loading spinner stops immediately
+    await query.answer("Fetching download links...")
     
-    s = get_movie(query.data)
-    response = requests.get(s["img"])
-    img = BytesIO(response.content)
+    try:
+        s = get_movie(query.data)
+        title = s.get("title", "Movie Details")
+        img_url = s.get("img")
+        links = s.get("links", {})
 
-    await query.message.reply_photo(
-        photo=img, 
-        caption=f"🎬 {s['title']}"
-    )
+        # Build download link text
+        if isinstance(links, dict) and links:
+            link_text = "".join([f"🎬 {btn_name}\n👉 {url}\n\n" for btn_name, url in links.items()])
+            caption = f"🎬 {title}\n\n📥 Direct Download Links:\n\n{link_text}"
+        else:
+            caption = f"🎬 {title}\n\n⚠️ No direct links found on the page."
 
-    links = s["links"]
-    link_text = "".join([f"🎬 {i}\n{link}\n\n" for i, link in links.items()]) if isinstance(links, dict) else ""
-    caption = f"Direct Download Links:\n\n{link_text}"
+        # 1. Attempt to send with photo directly via URL (no BytesIO download bottleneck)
+        photo_sent = False
+        if img_url and isinstance(img_url, str) and img_url.startswith("http"):
+            try:
+                # Telegram photo captions are limited to 1024 characters
+                photo_caption = caption[:1000] if len(caption) > 1000 else caption
+                await query.message.reply_photo(photo=img_url, caption=photo_caption)
+                photo_sent = True
+                
+                # If there is remaining text that didn't fit the photo caption, send as message
+                if len(caption) > 1000:
+                    await query.message.reply_text(caption[1000:])
+            except Exception as photo_err:
+                print(f"[Photo send failed, falling back to text]: {photo_err}")
 
-    if len(caption) > 4095:
-        for x in range(0, len(caption), 4095):
-            await query.message.reply_text(text=caption[x : x + 4095])
-    else:
-        await query.message.reply_text(text=caption)
+        # 2. Fallback to clean text message if photo fails or doesn't exist
+        if not photo_sent:
+            if len(caption) > 4095:
+                for x in range(0, len(caption), 4095):
+                    await query.message.reply_text(text=caption[x : x + 4095])
+            else:
+                await query.message.reply_text(text=caption)
+
+    except Exception as e:
+        print(f"[movie_result error]: {e}")
+        await query.message.reply_text("⚠️ Failed to load movie details. Please try another link.")
 
 
 def get_application() -> Application:
@@ -79,14 +112,14 @@ def get_application() -> Application:
 
 
 async def process_telegram_update(update_data):
-    """Processes update within a clean, isolated Application lifecycle."""
+    """Processes update within an isolated Application lifecycle."""
     application = get_application()
     async with application:
         update = Update.de_json(update_data, application.bot)
         await application.process_update(update)
 
 
-# Catch-all routes for webhooks
+# Catch-all routes for Vercel webhooks
 @app.route("/", methods=["GET", "POST"])
 @app.route("/api/index.py", methods=["GET", "POST"])
 @app.route(f"/{TOKEN}", methods=["GET", "POST"])
