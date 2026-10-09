@@ -1,7 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 
-# Browser headers to prevent immediate bot-blocking
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -9,13 +8,13 @@ HEADERS = {
 }
 
 API_KEY = "d154a6bffe6626a2744dfeb9f24f3f2338dfdbfe"
+# Guaranteed fallback image if the movie page has no thumbnail
+FALLBACK_IMG = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=60"
 
-# In-memory mapping of link IDs to URLs
 url_list = {}
 
 
 def shorten_url(original_url: str) -> str:
-    """Safely shortens a URL with timeout and fallback to original URL on error."""
     try:
         api_endpoint = f"https://urlshortx.com/api?api={API_KEY}&url={original_url}"
         res = requests.get(api_endpoint, timeout=4)
@@ -23,35 +22,28 @@ def shorten_url(original_url: str) -> str:
             data = res.json()
             if data.get("status") == "success" and "shortenedUrl" in data:
                 return data["shortenedUrl"]
-    except Exception as e:
-        print(f"[Shortener Error]: {e}")
+    except Exception:
+        pass
     return original_url
 
 
 def search_movies(query: str):
+    global url_list
     movies_list = []
-    # If this domain remains blocked or looping, replace with an active working mirror
+    
+    # If hdhub4u redirects to the homepage, you will get the homepage latest releases
     target_url = f"https://new2.hdhub4u.free/?s={query.replace(' ', '+')}"
 
     try:
-        response = requests.get(
-            target_url,
-            headers=HEADERS,
-            timeout=8,
-            allow_redirects=True
-        )
+        response = requests.get(target_url, headers=HEADERS, timeout=8, allow_redirects=True)
         if response.status_code != 200:
-            print(f"[Search Error] HTTP {response.status_code} returned.")
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
         
-        # Primary selector for movie cards
         cards = soup.find_all("a", class_="ml-mask jt")
-        
-        # Fallback selector if the site layout changes
         if not cards:
-            cards = soup.select("article a, .thumb a, .entry-title a")
+            cards = soup.select("article a, .thumb a, .entry-title a, .post-title a")
 
         for idx, item in enumerate(cards):
             href = item.get("href")
@@ -78,21 +70,15 @@ def search_movies(query: str):
 
         return movies_list
 
-    except requests.exceptions.TooManyRedirects:
-        print(f"[Redirect Loop]: {target_url} redirected too many times.")
-        return []
-    except requests.exceptions.RequestException as e:
-        print(f"[Network Error]: {e}")
+    except Exception as e:
+        print(f"[Search Exception]: {e}")
         return []
 
 
 def get_movie(query: str):
-    """
-    Accepts either an ID ('link0') or a direct URL.
-    """
     movie_details = {
-        "title": "Unknown Title",
-        "img": None,
+        "title": "Movie Details",
+        "img": FALLBACK_IMG,  # Always set to a valid URL by default
         "links": {}
     }
 
@@ -101,31 +87,39 @@ def get_movie(query: str):
         return movie_details
 
     try:
-        response = requests.get(
-            page_url,
-            headers=HEADERS,
-            timeout=8
-        )
+        response = requests.get(page_url, headers=HEADERS, timeout=8)
         if response.status_code != 200:
             return movie_details
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # Title extraction
+        # 1. Extract Title
         title_tag = soup.find("div", class_="mvic-desc")
         if title_tag and title_tag.find("h3"):
             movie_details["title"] = title_tag.find("h3").get_text(strip=True)
         elif soup.find("h1"):
             movie_details["title"] = soup.find("h1").get_text(strip=True)
 
-        # Poster / Thumbnail extraction
-        thumb_div = soup.find("div", class_="mvic-thumb")
-        if thumb_div:
-            movie_details["img"] = thumb_div.get("data-bg") or (thumb_div.find("img").get("src") if thumb_div.find("img") else None)
-        elif soup.find("meta", property="og:image"):
-            movie_details["img"] = soup.find("meta", property="og:image").get("content")
+        # 2. Extract Image safely (checks meta, post thumbnails, and inline images)
+        img_url = None
+        og_img = soup.find("meta", property="og:image")
+        if og_img and og_img.get("content"):
+            img_url = og_img.get("content")
 
-        # Download / Stream links
+        if not img_url:
+            thumb_div = soup.find("div", class_="mvic-thumb")
+            if thumb_div:
+                img_url = thumb_div.get("data-bg") or (thumb_div.find("img").get("src") if thumb_div.find("img") else None)
+
+        if not img_url:
+            first_img = soup.find("article")
+            if first_img and first_img.find("img"):
+                img_url = first_img.find("img").get("src")
+
+        if img_url and img_url.startswith("http"):
+            movie_details["img"] = img_url
+
+        # 3. Extract Links
         links = soup.find_all("a", attrs={"rel": "noopener", "data-wpel-link": "internal"})
         if not links:
             links = [a for a in soup.find_all("a", href=True) if "download" in a.get("href", "").lower()]
@@ -134,13 +128,17 @@ def get_movie(query: str):
         for a_tag in links[:5]:
             btn_text = a_tag.get_text(strip=True) or "Download Link"
             raw_href = a_tag.get("href")
-            if raw_href:
+            if raw_href and raw_href.startswith("http"):
                 shortened = shorten_url(raw_href)
                 final_links[btn_text] = shortened
+
+        # Fallback if no internal download links were found
+        if not final_links:
+            final_links["View on Website"] = shorten_url(page_url)
 
         movie_details["links"] = final_links
         return movie_details
 
-    except requests.exceptions.RequestException as e:
-        print(f"[Movie Fetch Error]: {e}")
+    except Exception as e:
+        print(f"[Get Movie Error]: {e}")
         return movie_details
