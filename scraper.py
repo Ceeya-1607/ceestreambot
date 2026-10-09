@@ -11,7 +11,7 @@ HEADERS = {
 API_KEY = "d154a6bffe6626a2744dfeb9f24f3f2338dfdbfe"
 FALLBACK_IMG = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=60"
 
-DOMAINS = ["awafim.org", "thenkiri.com", "mobiletvshows.site"]
+DOMAINS = ["mobiletvshows.site"]
 url_list = {}
 
 
@@ -83,7 +83,7 @@ def resolve_universal_download_link(raw_url: str) -> str:
 
         # 2. Integrate videodownloader.site API/extraction
         try:
-            vd_endpoint = f"https://videodownloader.site/api/extract?url={requests.utils.quote(raw_url)}"
+            vd_endpoint = f"https://https://mobiletvshows.site/api/extract?url={requests.utils.quote(raw_url)}"
             vd_res = requests.get(vd_endpoint, headers=HEADERS, timeout=4)
             if vd_res.status_code == 200:
                 vd_data = vd_res.json()
