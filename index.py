@@ -13,19 +13,18 @@ from telegram.ext import (
 )
 from scraper import search_movies, get_movie
 
-# Kept hardcoded values as requested
 TOKEN = "8640151446:AAHV_9j62tKvI2qtPwp05qTEyagjq0gXErk"
 URL = "https://ceestreambot.vercel.app"
 
 app = Flask(__name__)
 
-# Initialize the Telegram Application (v20+ approach)
+# Initialize the Telegram Application (v20+)
 ptb_app = Application.builder().token(TOKEN).build()
 
 
 async def welcome(update: Update, context) -> None:
     await update.message.reply_text(
-        "Hello Dear, Welcome to Project - Name.\n"
+        "Hello Dear, Welcome to CeeStream Bot.\n"
         "🔥 Download Your Favourite Movies, Webseries & TV-Shows For 🎁 Free And 🥳 Enjoy it.\n"
         "👇 Enter Keyword Below 👇"
     )
@@ -66,7 +65,6 @@ async def movie_result(update: Update, context) -> None:
     link_text = "".join([f"🎬 {i}\n{link}\n\n" for i, link in links.items()]) if isinstance(links, dict) else ""
     caption = f"Direct Download Links:\n\n{link_text}"
 
-    # Split message if it exceeds Telegram's 4096 character limit
     if len(caption) > 4095:
         for x in range(0, len(caption), 4095):
             await query.message.reply_text(text=caption[x : x + 4095])
@@ -80,29 +78,37 @@ ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, find_movie))
 ptb_app.add_handler(CallbackQueryHandler(movie_result))
 
 
-@app.route("/")
-def index():
-    return "Hello World!"
+async def process_telegram_update(update_data):
+    """Initializes and processes update cleanly for PTB v20+ serverless."""
+    async with ptb_app:
+        update = Update.de_json(update_data, ptb_app.bot)
+        await ptb_app.process_update(update)
 
 
+# Catch all incoming webhook paths so Vercel rewrites never 404
+@app.route("/", methods=["GET", "POST"])
+@app.route("/api/index.py", methods=["GET", "POST"])
 @app.route(f"/{TOKEN}", methods=["GET", "POST"])
 def respond():
     if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-        asyncio.run(ptb_app.process_update(update))
-    return "ok"
+        payload = request.get_json(force=True, silent=True)
+        if payload:
+            asyncio.run(process_telegram_update(payload))
+            return "ok"
+    return "Bot is running!"
 
 
 @app.route("/setwebhook", methods=["GET", "POST"])
 def set_webhook():
     webhook_url = f"{URL}/{TOKEN}"
-    
+
     async def _set():
-        return await ptb_app.bot.set_webhook(webhook_url)
+        async with ptb_app:
+            return await ptb_app.bot.set_webhook(webhook_url)
 
     success = asyncio.run(_set())
     if success:
-        return "webhook setup ok"
+        return f"webhook setup ok -> {webhook_url}"
     return "webhook setup failed"
 
 
