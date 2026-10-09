@@ -32,7 +32,7 @@ def search_movies(query: str):
     movies_list = []
     
     # If hdhub4u redirects to the homepage, you will get the homepage latest releases
-    target_url = f"https://new2.hdhub4u.free/?s={query.replace(' ', '+')}"
+    target_url = f"https://fzmovies.live/?s={query.replace(' ', '+')}"
 
     try:
         response = requests.get(target_url, headers=HEADERS, timeout=8, allow_redirects=True)
