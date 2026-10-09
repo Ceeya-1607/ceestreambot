@@ -18,9 +18,6 @@ URL = "https://ceestreambot.vercel.app"
 
 app = Flask(__name__)
 
-# Initialize the Telegram Application (v20+)
-ptb_app = Application.builder().token(TOKEN).build()
-
 
 async def welcome(update: Update, context) -> None:
     await update.message.reply_text(
@@ -72,20 +69,24 @@ async def movie_result(update: Update, context) -> None:
         await query.message.reply_text(text=caption)
 
 
-# Register Handlers
-ptb_app.add_handler(CommandHandler("start", welcome))
-ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, find_movie))
-ptb_app.add_handler(CallbackQueryHandler(movie_result))
+def get_application() -> Application:
+    """Builds a fresh Application instance bound to the current event loop."""
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", welcome))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, find_movie))
+    application.add_handler(CallbackQueryHandler(movie_result))
+    return application
 
 
 async def process_telegram_update(update_data):
-    """Initializes and processes update cleanly for PTB v20+ serverless."""
-    async with ptb_app:
-        update = Update.de_json(update_data, ptb_app.bot)
-        await ptb_app.process_update(update)
+    """Processes update within a clean, isolated Application lifecycle."""
+    application = get_application()
+    async with application:
+        update = Update.de_json(update_data, application.bot)
+        await application.process_update(update)
 
 
-# Catch all incoming webhook paths so Vercel rewrites never 404
+# Catch-all routes for webhooks
 @app.route("/", methods=["GET", "POST"])
 @app.route("/api/index.py", methods=["GET", "POST"])
 @app.route(f"/{TOKEN}", methods=["GET", "POST"])
@@ -103,8 +104,9 @@ def set_webhook():
     webhook_url = f"{URL}/{TOKEN}"
 
     async def _set():
-        async with ptb_app:
-            return await ptb_app.bot.set_webhook(webhook_url)
+        application = get_application()
+        async with application:
+            return await application.bot.set_webhook(webhook_url)
 
     success = asyncio.run(_set())
     if success:
