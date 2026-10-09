@@ -3,3 +3,4 @@ python-telegram-bot>=20.0
 requests==2.31.0
 Flask==2.2.2
 werkzeug==2.2.2
+playwright==1.45.0
