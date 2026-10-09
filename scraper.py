@@ -32,7 +32,7 @@ def search_movies(query: str):
     movies_list = []
     
     # If hdhub4u redirects to the homepage, you will get the homepage latest releases
-    target_url = f"https://ww1.goojara.to/?s={query.replace(' ', '+')}"
+    target_url = f"https://ww1.goojara.to/watch-trends-genre/?s={query.replace(' ', '+')}"
 
     try:
         response = requests.get(target_url, headers=HEADERS, timeout=8, allow_redirects=True)
