@@ -11,7 +11,7 @@ HEADERS = {
 API_KEY = "d154a6bffe6626a2744dfeb9f24f3f2338dfdbfe"
 FALLBACK_IMG = "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=60"
 
-DOMAINS = ["ww1.goojara.to]
+DOMAINS = ["ww1.goojara.to/"]
 url_list = {}
 
 
