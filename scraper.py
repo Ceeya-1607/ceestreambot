@@ -83,7 +83,7 @@ def resolve_universal_download_link(raw_url: str) -> str:
 
         # 2. Integrate videodownloader.site API/extraction
         try:
-            vd_endpoint = f"https://fzmovie.web.za/api/extract?url={requests.utils.quote(raw_url)}"
+            vd_endpoint = f"https://yts.vg/api/extract?url={requests.utils.quote(raw_url)}"
             vd_res = requests.get(vd_endpoint, headers=HEADERS, timeout=4)
             if vd_res.status_code == 200:
                 vd_data = vd_res.json()
